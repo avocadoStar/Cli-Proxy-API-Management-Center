@@ -30,14 +30,17 @@ import {
   MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
   QUOTA_PROVIDER_TYPES,
+  AUTH_FILE_DB_STATUS_DISABLED,
+  AUTH_FILE_DB_STATUS_ENABLED,
+  AUTH_FILE_DB_STATUS_PROBLEM,
   clampCardPageSize,
   getAuthFileIcon,
   getTypeColor,
   getTypeLabel,
-  hasAuthFileStatusMessage,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
+  readAuthFileDbStatus,
   type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
@@ -387,9 +390,11 @@ export function AuthFilesPage() {
   const filesMatchingStatusFilters = useMemo(
     () =>
       files.filter((file) => {
-        if (enabledOnly && file.disabled === true) return false;
-        if (disabledOnly && file.disabled !== true) return false;
-        if (problemOnly && !hasAuthFileStatusMessage(file)) return false;
+        if (!enabledOnly && !disabledOnly && !problemOnly) return true;
+        const status = readAuthFileDbStatus(file);
+        if (enabledOnly && status !== AUTH_FILE_DB_STATUS_ENABLED) return false;
+        if (disabledOnly && status !== AUTH_FILE_DB_STATUS_DISABLED) return false;
+        if (problemOnly && status !== AUTH_FILE_DB_STATUS_PROBLEM) return false;
         return true;
       }),
     [disabledOnly, enabledOnly, files, problemOnly]

@@ -27,6 +27,8 @@ export interface AuthFileItem {
   authIndex?: string | number | null;
   runtimeOnly?: boolean | string;
   disabled?: boolean;
+  db_status?: number;
+  dbStatus?: number;
   unavailable?: boolean;
   status?: string;
   statusMessage?: string;

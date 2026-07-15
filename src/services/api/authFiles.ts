@@ -9,7 +9,7 @@ import { normalizeOAuthProviderKey } from '@/utils/providerKeys';
 import { parseTimestampMs } from '@/utils/timestamp';
 
 type StatusError = { status?: number };
-type AuthFileStatusResponse = { status: string; disabled: boolean };
+type AuthFileStatusResponse = { status: string; disabled: boolean; db_status?: number };
 type AuthFileEntry = AuthFilesResponse['files'][number];
 export type AuthFileFieldsPatch = {
   prefix?: string;

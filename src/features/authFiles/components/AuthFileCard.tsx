@@ -21,6 +21,9 @@ import {
 } from '@/utils/recentRequests';
 import { formatFileSize } from '@/utils/format';
 import {
+  AUTH_FILE_DB_STATUS_DISABLED,
+  AUTH_FILE_DB_STATUS_ENABLED,
+  AUTH_FILE_DB_STATUS_PROBLEM,
   QUOTA_PROVIDER_TYPES,
   formatModified,
   getAuthFileIcon,
@@ -30,6 +33,7 @@ import {
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
+  readAuthFileDbStatus,
   type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
@@ -125,20 +129,21 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   const priorityValue = parsePriorityValue(file.priority ?? file['priority']);
   const noteValue = typeof file.note === 'string' ? file.note.trim() : '';
+  const dbStatus = readAuthFileDbStatus(file);
   const stateLabel = isRuntimeOnly
     ? t('auth_files.type_virtual') || '虚拟认证文件'
-    : file.disabled
+    : dbStatus === AUTH_FILE_DB_STATUS_DISABLED
       ? t('auth_files.health_status_disabled')
-      : hasStatusWarning
+      : dbStatus === AUTH_FILE_DB_STATUS_PROBLEM
         ? t('auth_files.health_status_warning')
         : rawStatusMessage
           ? t('auth_files.health_status_healthy')
           : t('auth_files.status_toggle_label');
   const stateBadgeClass = isRuntimeOnly
     ? styles.stateBadgeVirtual
-    : file.disabled
+    : dbStatus === AUTH_FILE_DB_STATUS_DISABLED
       ? styles.stateBadgeDisabled
-      : hasStatusWarning
+      : dbStatus === AUTH_FILE_DB_STATUS_PROBLEM
         ? styles.stateBadgeWarning
         : styles.stateBadgeActive;
 
@@ -325,7 +330,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
                 </span>
                 <ToggleSwitch
                   ariaLabel={t('auth_files.status_toggle_label')}
-                  checked={!file.disabled}
+                  checked={dbStatus === AUTH_FILE_DB_STATUS_ENABLED}
                   disabled={disableControls || statusUpdating[file.name] === true}
                   onChange={(value) => onToggleStatus(file, value)}
                 />

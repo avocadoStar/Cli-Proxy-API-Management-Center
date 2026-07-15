@@ -8,10 +8,13 @@ import { formatFileSize } from '@/utils/format';
 import { MAX_AUTH_FILE_SIZE } from '@/utils/constants';
 import { downloadBlob } from '@/utils/download';
 import {
+  AUTH_FILE_DB_STATUS_DISABLED,
+  AUTH_FILE_DB_STATUS_ENABLED,
+  AUTH_FILE_DB_STATUS_PROBLEM,
   getTypeLabel,
-  hasAuthFileStatusMessage,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
+  readAuthFileDbStatus,
 } from '@/features/authFiles/constants';
 
 type DeleteAllOptions = {
@@ -51,6 +54,16 @@ export type UseAuthFilesDataResult = {
   batchDownload: (names: string[]) => Promise<void>;
   batchSetStatus: (names: string[], enabled: boolean) => Promise<void>;
   batchDelete: (names: string[]) => void;
+};
+
+// buildAuthFileDownloadName normalizes an auth file name into a basename with a
+// .json extension so browser downloads always land as JSON regardless of the
+// stored identifier shape or blob type defaults.
+const buildAuthFileDownloadName = (name: string): string => {
+  const trimmed = String(name ?? '').trim();
+  const base = trimmed.split(/[\\/]/).pop() || trimmed || 'auth-file';
+  const withoutExt = base.replace(/\.[^.]+$/, '');
+  return `${withoutExt}.json`;
 };
 
 export function useAuthFilesData(): UseAuthFilesDataResult {
@@ -314,9 +327,12 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
                 ) {
                   return false;
                 }
-                if (isProblemOnly && !hasAuthFileStatusMessage(file)) return false;
-                if (isDisabledOnly && file.disabled !== true) return false;
-                if (isEnabledOnly && file.disabled === true) return false;
+                if (isProblemOnly || isDisabledOnly || isEnabledOnly) {
+                  const fileDbStatus = readAuthFileDbStatus(file);
+                  if (isProblemOnly && fileDbStatus !== AUTH_FILE_DB_STATUS_PROBLEM) return false;
+                  if (isDisabledOnly && fileDbStatus !== AUTH_FILE_DB_STATUS_DISABLED) return false;
+                  if (isEnabledOnly && fileDbStatus !== AUTH_FILE_DB_STATUS_ENABLED) return false;
+                }
                 return true;
               });
 
@@ -415,8 +431,8 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           `/auth-files/download?name=${encodeURIComponent(name)}`,
           { responseType: 'blob' }
         );
-        const blob = new Blob([response.data]);
-        downloadBlob({ filename: name, blob });
+        const blob = new Blob([response.data], { type: 'application/json' });
+        downloadBlob({ filename: buildAuthFileDownloadName(name), blob });
         showNotification(t('auth_files.download_success'), 'success');
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
@@ -431,14 +447,32 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       const name = item.name;
       const nextDisabled = !enabled;
       const previousDisabled = item.disabled === true;
+      const previousDbStatus = readAuthFileDbStatus(item);
+      const nextDbStatus = nextDisabled
+        ? AUTH_FILE_DB_STATUS_DISABLED
+        : AUTH_FILE_DB_STATUS_ENABLED;
 
       setStatusUpdating((prev) => ({ ...prev, [name]: true }));
-      setFiles((prev) => prev.map((f) => (f.name === name ? { ...f, disabled: nextDisabled } : f)));
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.name === name ? { ...f, disabled: nextDisabled, db_status: nextDbStatus } : f
+        )
+      );
 
       try {
         const res = await authFilesApi.setStatus(name, nextDisabled);
+        const confirmedDbStatus =
+          typeof res.db_status === 'number'
+            ? res.db_status
+            : res.disabled
+              ? AUTH_FILE_DB_STATUS_DISABLED
+              : AUTH_FILE_DB_STATUS_ENABLED;
         setFiles((prev) =>
-          prev.map((f) => (f.name === name ? { ...f, disabled: res.disabled } : f))
+          prev.map((f) =>
+            f.name === name
+              ? { ...f, disabled: res.disabled, db_status: confirmedDbStatus }
+              : f
+          )
         );
         showNotification(
           enabled
@@ -449,7 +483,11 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : '';
         setFiles((prev) =>
-          prev.map((f) => (f.name === name ? { ...f, disabled: previousDisabled } : f))
+          prev.map((f) =>
+            f.name === name
+              ? { ...f, disabled: previousDisabled, db_status: previousDbStatus }
+              : f
+          )
         );
         showNotification(`${t('notification.update_failed')}: ${errorMessage}`, 'error');
       } finally {
@@ -477,11 +515,19 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           .filter((file) => uniqueNames.includes(file.name))
           .map((file) => [file.name, file.disabled === true])
       );
+      const originalDbStatus = new Map(
+        files
+          .filter((file) => uniqueNames.includes(file.name))
+          .map((file) => [file.name, readAuthFileDbStatus(file)])
+      );
       const targetNames = new Set(originalDisabled.keys());
       const targetNameList = Array.from(targetNames);
       if (targetNameList.length === 0) return;
 
       const nextDisabled = !enabled;
+      const nextDbStatus = nextDisabled
+        ? AUTH_FILE_DB_STATUS_DISABLED
+        : AUTH_FILE_DB_STATUS_ENABLED;
 
       batchStatusPendingRef.current = true;
       setBatchStatusUpdating(true);
@@ -494,7 +540,9 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       });
       setFiles((prev) =>
         prev.map((file) =>
-          targetNames.has(file.name) ? { ...file, disabled: nextDisabled } : file
+          targetNames.has(file.name)
+            ? { ...file, disabled: nextDisabled, db_status: nextDbStatus }
+            : file
         )
       );
 
@@ -507,12 +555,21 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         let failCount = 0;
         const failedNames = new Set<string>();
         const confirmedDisabled = new Map<string, boolean>();
+        const confirmedDbStatus = new Map<string, number>();
 
         results.forEach((result, index) => {
           const name = targetNameList[index];
           if (result.status === 'fulfilled') {
             successCount++;
             confirmedDisabled.set(name, result.value.disabled);
+            confirmedDbStatus.set(
+              name,
+              typeof result.value.db_status === 'number'
+                ? result.value.db_status
+                : result.value.disabled
+                  ? AUTH_FILE_DB_STATUS_DISABLED
+                  : AUTH_FILE_DB_STATUS_ENABLED
+            );
           } else {
             failCount++;
             failedNames.add(name);
@@ -522,10 +579,18 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         setFiles((prev) =>
           prev.map((file) => {
             if (failedNames.has(file.name)) {
-              return { ...file, disabled: originalDisabled.get(file.name) === true };
+              return {
+                ...file,
+                disabled: originalDisabled.get(file.name) === true,
+                db_status: originalDbStatus.get(file.name) ?? readAuthFileDbStatus(file),
+              };
             }
             if (confirmedDisabled.has(file.name)) {
-              return { ...file, disabled: confirmedDisabled.get(file.name) };
+              return {
+                ...file,
+                disabled: confirmedDisabled.get(file.name),
+                db_status: confirmedDbStatus.get(file.name) ?? readAuthFileDbStatus(file),
+              };
             }
             return file;
           })
@@ -573,8 +638,8 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
             `/auth-files/download?name=${encodeURIComponent(name)}`,
             { responseType: 'blob' }
           );
-          const blob = new Blob([response.data]);
-          downloadBlob({ filename: name, blob });
+          const blob = new Blob([response.data], { type: 'application/json' });
+          downloadBlob({ filename: buildAuthFileDownloadName(name), blob });
           successCount++;
         } catch {
           failCount++;

@@ -173,6 +173,37 @@ export const getAuthFileStatusMessage = (file: AuthFileItem): string => {
 export const hasAuthFileStatusMessage = (file: AuthFileItem): boolean =>
   getAuthFileStatusMessage(file).length > 0;
 
+// Management presentation DB status values returned by the backend. The backend
+// maps the internal auth-health statuses (active / quota-limited / disabled) to
+// these presentation values so the UI can filter consistently without depending
+// on the internal constants.
+export const AUTH_FILE_DB_STATUS_ENABLED = 1;
+export const AUTH_FILE_DB_STATUS_PROBLEM = 2;
+export const AUTH_FILE_DB_STATUS_DISABLED = 3;
+
+// readAuthFileDbStatus resolves the management presentation status of an auth
+// file. It prefers the backend-provided db_status (also accepting dbStatus and
+// numeric strings) and falls back to disabled/status_message for older backends
+// that do not expose db_status.
+export const readAuthFileDbStatus = (file: AuthFileItem): number => {
+  const raw: unknown = file['db_status'] ?? file.dbStatus;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    if (raw === AUTH_FILE_DB_STATUS_ENABLED ||
+        raw === AUTH_FILE_DB_STATUS_PROBLEM ||
+        raw === AUTH_FILE_DB_STATUS_DISABLED) {
+      return raw;
+    }
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed === '1') return AUTH_FILE_DB_STATUS_ENABLED;
+    if (trimmed === '2') return AUTH_FILE_DB_STATUS_PROBLEM;
+    if (trimmed === '3') return AUTH_FILE_DB_STATUS_DISABLED;
+  }
+  if (file.disabled === true) return AUTH_FILE_DB_STATUS_DISABLED;
+  if (hasAuthFileStatusMessage(file)) return AUTH_FILE_DB_STATUS_PROBLEM;
+  return AUTH_FILE_DB_STATUS_ENABLED;
+};
+
 export const getTypeLabel = (t: TFunction, type: string): string => {
   const providerKey = normalizeProviderKey(type);
   const key = `auth_files.filter_${providerKey}`;
