@@ -885,6 +885,7 @@ export function AuthFilesPage() {
         disableControls={disableControls}
         excludedError={excludedError}
         excluded={excluded}
+        onRetry={loadExcluded}
         onAdd={() => openExcludedEditor()}
         onEdit={openExcludedEditor}
         onDelete={deleteExcluded}
@@ -894,6 +895,7 @@ export function AuthFilesPage() {
         disableControls={disableControls}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        onRetry={loadModelAlias}
         onAdd={() => openModelAliasEditor()}
         onEditProvider={openModelAliasEditor}
         onDeleteProvider={deleteModelAlias}
